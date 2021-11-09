@@ -1,0 +1,6 @@
+['2021-10-08', '17-28-31']
+{'coin1': 'CTK', 'coin2': 'USDT', 'direction': 'LONG', 'entry': '1.82', 'takeprofit': '1.92', 'stoploss': '1.75', 'leverage_type': 'cross', 'leverage': '25'}
+['2021-10-09', '09-41-13']
+{'coin1': 'CTK', 'coin2': 'USDT', 'direction': 'LONG', 'entry': '1.82', 'takeprofit': '1.92', 'stoploss': '1.75', 'leverage_type': 'cross', 'leverage': '25'}
+['2021-10-09', '11-22-32']
+{'coin1': 'FTM', 'coin2': 'USDT', 'direction': 'SHORT', 'leverage': '20', 'entry': '2', 'target': '2.354', 'stoploss': '2'}
