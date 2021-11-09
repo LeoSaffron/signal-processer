@@ -1,0 +1,14 @@
+position opened
+pair: LIT/USDT
+leverage: 20
+2% of the portfollio
+price entered: 4.853
+at: 2021-10-29 18:00:49
+
+position opened
+pair: LIT/USDT
+leverage: 20
+2% of the portfollio
+price entered: 5.146
+at: 2021-11-09 23:50:15
+
