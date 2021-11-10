@@ -255,7 +255,7 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
                 df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SOLD_PROFIT
                 positions_opened -= 1
                 continue
-            if(current_price < row['entry']):
+            if(current_price < row['stop_loss']):
                 if (verbose >= 1):
                     print("{}/{} pair coin signal has reached stop loss price".format(row['coin1'], row['coin2']))
                 log_line =  '\n'.join(["position closed",
