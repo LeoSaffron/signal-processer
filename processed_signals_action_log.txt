@@ -12,3 +12,24 @@ leverage: 20
 price entered: 5.146
 at: 2021-11-09 23:50:15
 
+position closed
+pair: LIT/USDT
+leverage: 20
+2% of the portfollio
+price sold: 5.132
+at: 2021-11-10 20:32:55
+
+position opened
+pair: LIT/USDT
+leverage: 20
+2% of the portfollio
+price entered: 5.172
+at: 2021-11-10 21:14:53
+
+position closed
+pair: LIT/USDT
+leverage: 20
+2% of the portfollio
+price sold: 5.156
+at: 2021-11-10 21:15:13
+
