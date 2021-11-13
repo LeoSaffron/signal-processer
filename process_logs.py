@@ -17,9 +17,13 @@ import pandas as pd
 import datetime
 from binance.client import Client
 import time
+from time import sleep
 from enum import Enum
 
 MAX_TRADES = 2
+MAX_USD = 50
+MAX_PERCENTAGE_ALLOCATION=30
+usd_limit_mode = "constant"
 #btc_to_spend = 0.001
 folder_config_path = "config_files_binance_trader/"
 binance_credentials_file_path = folder_config_path + "bn_c.json"
@@ -47,9 +51,11 @@ def init_opened_orders_df():
 
 def init_signals_df():
     result = pd.DataFrame(columns=['coin1', 'coin2', 'exchange_list',
-                          'signal_direction', 'leverage', 'amount',
-                          'entry', 'take_profit', 'stop_loss',
-                          'status', 'time_of_signal'
+                          'signal_direction', 'leverage',
+                          'leverage_type', 'amount',  'entry', 
+                          'take_profit', 'stop_loss',
+                          'status', 'time_of_signal',
+                          'orderId_profit', 'orderId_stop'
                           ])
     return result
 
@@ -57,6 +63,12 @@ def read_logs_file(path):
     with open(path, 'r') as f:
         lines = f.read().splitlines()
     return lines
+
+def get_max_usd_spendable_total():
+    return MAX_USD
+
+def get_max_usd_per_coin():
+    return get_max_usd_spendable_total() / MAX_TRADES
 
 def get_dict_from_file_single_line(path):
     with open(path, 'r') as f:
@@ -154,11 +166,18 @@ def process_logs_file(path):
     coin2 = line_dict['coin2']
     exchange_list = line_dict['exchange_list'] if 'exchange_list' in line_dict.keys() else 'Binance Futures'
     signal_direction = line_dict['signal_direction'] if 'signal_direction' in line_dict.keys() else 'long'
-    leverage = int(float(line_dict['leverage'])) if 'leverage' in line_dict.keys() else 2
-    amount = int(float(line_dict['amount'])) if 'amount' in line_dict.keys() else 2
+    leverage = int(float(line_dict['leverage'])) if 'leverage' in line_dict.keys() else None
+    leverage_type = str(line_dict['leverage_type']).lower() if 'leverage_type' in line_dict.keys() else 'cross'
+    amount = int(float(line_dict['amount'])) if 'amount' in line_dict.keys() else None
     entry = float(line_dict['entry']) if 'entry' in line_dict.keys() else float('nan')
     take_profit = float(line_dict['take_profit']) if 'take_profit' in line_dict.keys() else float('nan')
     stop_loss = float(line_dict['stop_loss']) if 'stop_loss' in line_dict.keys() else float('nan')
+    
+    if((amount == None) or (leverage == None)):
+        leverage_type = 'cross'
+    
+    amount = 2 if amount == None else amount
+    leverage = 2 if leverage == None else leverage
     
     status = Status_of_signal.NEW
     time_of_signal = pd.to_datetime(datetime.datetime.now())
@@ -168,6 +187,7 @@ def process_logs_file(path):
          "exchange_list" : exchange_list,
          "signal_direction" : signal_direction,
          "leverage" : leverage,
+         "leverage_type" : leverage_type,
          "amount" : amount,
          "entry" : entry,
          "take_profit" : take_profit,
@@ -202,10 +222,12 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
             if (verbose >= 1):
                 print("{}/{} pair coin signal has reached entry price".format(row['coin1'], row['coin2']))
             if positions_opened < MAX_TRADES:
+                quantity = get_max_usd_per_coin() * row['amount'] / current_price  / 100 
                 log_line =  '\n'.join(["position opened",
                                        "pair: {}/{}".format(row['coin1'], row['coin2']),
                                        "leverage: {}".format(row['leverage']),
                                        "{}% of the portfollio".format(row['amount']),
+                                       "quantity: {}".format(quantity),
                                        "price entered: {}".format(current_price),
                                        "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                                        ])
