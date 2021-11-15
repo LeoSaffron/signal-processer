@@ -19,6 +19,7 @@ from binance.client import Client
 import time
 from time import sleep
 from enum import Enum
+from requests.exceptions import ReadTimeout
 
 MAX_TRADES = 2
 MAX_USD = 50
@@ -213,39 +214,72 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
             if (verbose >= 1):
                 print("{}/{} pair coin signal has expired".format(row['coin1'], row['coin2']))
             continue
-        if(current_price >= row['take_profit']):
-            ####cancel signal and remove from df
-            if (verbose >= 1):
-                print("{}/{} pair coin signal has expired due to reaching target price before entry price".format(row['coin1'], row['coin2']))
-            continue
-        if(current_price < row['entry']):
-            if (verbose >= 1):
-                print("{}/{} pair coin signal has reached entry price".format(row['coin1'], row['coin2']))
-            if positions_opened < MAX_TRADES:
-                quantity = get_max_usd_per_coin() * row['amount'] / current_price  / 100 
-                log_line =  '\n'.join(["position opened",
-                                       "pair: {}/{}".format(row['coin1'], row['coin2']),
-                                       "leverage: {}".format(row['leverage']),
-                                       "{}% of the portfollio".format(row['amount']),
-                                       "quantity: {}".format(quantity),
-                                       "price entered: {}".format(current_price),
-                                       "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                                       ])
-                print(log_line)
-                save_purchase_to_log_file(path_logfile, log_line)
-                df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SENT_ORDER
-                positions_opened += 1
-            else:
-                log_line =  '\n'.join(["signal dismissed due to max limit of orders",
-                                       "pair: {}/{}".format(row['coin1'], row['coin2']),
-                                       "leverage: {}".format(row['leverage']),
-                                       "{}% of the portfollio".format(row['amount']),
-                                       "price entered: {}".format(current_price),
-                                       "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                                       ])
-                print(log_line)
-                save_purchase_to_log_file(path_logfile, log_line)
-                df_signals.loc[row['coin1'], 'status'] = Status_of_signal.DISMISSED
+        if row['signal_direction'].lower() == "long":
+            if(current_price >= row['take_profit']):
+                ####cancel signal and remove from df
+                if (verbose >= 1):
+                    print("{}/{} pair coin signal has expired due to reaching target price before entry price".format(row['coin1'], row['coin2']))
+                continue
+            if(current_price < row['entry']):
+                if (verbose >= 1):
+                    print("{}/{} pair coin signal has reached entry price".format(row['coin1'], row['coin2']))
+                if positions_opened < MAX_TRADES:
+                    quantity = get_max_usd_per_coin() * row['amount'] / current_price  / 100
+                    symbol = row['coin1'] + row['coin2']
+
+                    
+                    min_lot_size = float(client.get_symbol_info(symbol)['filters'][2]['minQty'])
+                    quantity_new = min_lot_size * (int (quantity / min_lot_size) )
+                    
+                    
+                    order = client.futures_create_order(
+                                    symbol=symbol,
+                                    side="BUY",
+                                    type="MARKET",
+                                    quantity=quantity_new)
+                    print(order)
+                    log_line =  '\n'.join(["position opened",
+                                           "pair: {}/{}".format(row['coin1'], row['coin2']),
+                                           "leverage: {}".format(row['leverage']),
+                                           "{}% of the portfollio".format(row['amount']),
+                                           "quantity: {}".format(quantity_new),
+                                           "price entered: {}".format(current_price),
+                                           "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                           ])
+                    print(log_line)
+                    sleep(2)
+                    order_buy = client.futures_create_order(
+                                    symbol=symbol,
+                                    side="SELL",
+                                    type="TAKE_PROFIT",
+                                    quantity=quantity_new,
+                                    price=row['take_profit'],
+                                    stopPrice=row['take_profit'])
+
+
+
+                    order_sell = client.futures_create_order(
+                                                        symbol=symbol,
+                                                        side="SELL",
+                                                        type="STOP_MARKET",
+                                                        quantity=quantity_new,
+                                                        stopPrice=row['stop_loss'])
+                    save_purchase_to_log_file(path_logfile, log_line)
+                    df_signals.loc[row['coin1'], 'orderId_profit'] = order_buy['orderId']
+                    df_signals.loc[row['coin1'], 'orderId_stop'] = order_sell['orderId']
+                    df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SENT_ORDER
+                    positions_opened += 1
+                else:
+                    log_line =  '\n'.join(["signal dismissed due to max limit of orders",
+                                           "pair: {}/{}".format(row['coin1'], row['coin2']),
+                                           "leverage: {}".format(row['leverage']),
+                                           "{}% of the portfollio".format(row['amount']),
+                                           "price entered: {}".format(current_price),
+                                           "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                           ])
+                    print(log_line)
+                    save_purchase_to_log_file(path_logfile, log_line)
+                    df_signals.loc[row['coin1'], 'status'] = Status_of_signal.DISMISSED
                 
 
 def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
@@ -261,7 +295,12 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
 #                if (verbose >= 1):
 #                    print("{}/{} pair coin signal has expired".format(row['coin1'], row['coin2']))
 #                continue
-            if(current_price >= row['take_profit']):
+            symbol = row['coin1'] + row['coin2']
+            status_buy = client.futures_get_order(symbol=symbol,orderId=row['orderId_profit'])['status']
+            status_sell = client.futures_get_order(symbol=symbol,orderId=row['orderId_stop'])['status']
+            
+            if (status_buy == 'FILLED'):
+                client.futures_cancel_order(orderId=order_sell['orderId'], symbol=symbol)
                 ####sell coin with profit and remove from df
                 if (verbose >= 1):
                     print("{}/{} pair coin has reached target price!".format(row['coin1'], row['coin2']))
@@ -277,7 +316,8 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
                 df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SOLD_PROFIT
                 positions_opened -= 1
                 continue
-            if(current_price < row['stop_loss']):
+            elif status_sell == 'FILLED':
+                client.futures_cancel_order(orderId=order_buy['orderId'], symbol=symbol)
                 if (verbose >= 1):
                     print("{}/{} pair coin signal has reached stop loss price".format(row['coin1'], row['coin2']))
                 log_line =  '\n'.join(["position closed",
@@ -291,6 +331,8 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
                 save_purchase_to_log_file(path_logfile, log_line)
                 df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SOLD_STOPLOSS
                 positions_opened -= 1
+#            if(current_price >= row['take_profit']):
+#            if(current_price < row['stop_loss']):
     df_closed_positions = pd.concat([df_closed_positions, df_signals[df_signals['status'] == Status_of_signal.SOLD_PROFIT].copy()], axis=0)
     df_closed_positions = pd.concat([df_closed_positions, df_signals[df_signals['status'] == Status_of_signal.SOLD_STOPLOSS].copy()], axis=0)
     df_signals = df_signals.drop(df_signals[df_signals['status'] == Status_of_signal.SOLD_PROFIT].index)
@@ -346,8 +388,15 @@ def main_loop(path):
     try:
         init_loop(path)
         while (True):
-            process_logs_file(path)
-            time.sleep(2)
+            try:
+                process_logs_file(path)
+                process_df_signals(verbose = 1)
+                time.sleep(2)
+            except ReadTimeout:
+                print (ReadTimeout)
+            except Exception as e:
+                print(e)
+                break
     except Exception as e:
         print(e)
 
