@@ -300,7 +300,7 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
             status_sell = client.futures_get_order(symbol=symbol,orderId=row['orderId_stop'])['status']
             
             if (status_buy == 'FILLED'):
-                client.futures_cancel_order(orderId=order_sell['orderId'], symbol=symbol)
+                client.futures_cancel_order(orderId=row['orderId_stop'], symbol=symbol)
                 ####sell coin with profit and remove from df
                 if (verbose >= 1):
                     print("{}/{} pair coin has reached target price!".format(row['coin1'], row['coin2']))
@@ -317,7 +317,7 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
                 positions_opened -= 1
                 continue
             elif status_sell == 'FILLED':
-                client.futures_cancel_order(orderId=order_buy['orderId'], symbol=symbol)
+                client.futures_cancel_order(orderId=row['orderId_profit'], symbol=symbol)
                 if (verbose >= 1):
                     print("{}/{} pair coin signal has reached stop loss price".format(row['coin1'], row['coin2']))
                 log_line =  '\n'.join(["position closed",
