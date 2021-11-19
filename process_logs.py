@@ -102,13 +102,17 @@ def read_new_line_from_logs_file(path):
         lines_count = len(lines)
     return last_line
 
-def get_coin_price(coin1, coin2):
+
+def get_coin_price_spot_last_price(coin1, coin2):
     return float(client.get_symbol_ticker(symbol=coin1 + coin2)['price'])
 
 
 def get_coin_futures_last_price(coin1, coin2):
     return float(client.futures_ticker(symbol=coin1 + coin2)['lastPrice'])
 
+
+def get_coin_price(coin1, coin2):
+    return get_coin_price_spot_last_price(coin1, coin2)
 
 def set_price(coin, base_price):
     return base_price / get_coin_price(coin)
@@ -126,37 +130,6 @@ def is_line_passes_filter(line):
 #    if (not (coin in coins_whitelist)):
 #        return False
     return True
-
-def place_market_order_binance(coin, side, quantity):
-#    print(quantity)
-#    order = client.create_test_order(
-    order = client.create_order(
-            symbol=coin + base_currency,
-            side=side,
-            type='MARKET',
-            quantity="{:.3f}".format(quantity)
-            )
-    return order
-
-def proceed_with_buy_order(coin):
-    global positions_opened
-    min_lot_size = float(client.get_symbol_info(coin + base_currency)['filters'][2]['minQty'])
-    newprice = set_price(coin, btc_to_spend)
-    newprice = min_lot_size * (int (newprice / min_lot_size) )
-    order = place_market_order_binance(coin, "BUY", newprice)
-    print("sent BUY order for pair {}. quantity {}".format(coin + base_currency, "{:.3f}".format(newprice)))
-    opened_orders_df.loc[coin] = ['BUY']
-    positions_opened += 1
-
-def proceed_with_sell_order(coin):
-    global positions_opened, opened_orders_df
-    min_lot_size = float(client.get_symbol_info(coin+base_currency)['filters'][2]['minQty'])
-    newprice = set_price(coin, 0.997 * btc_to_spend)
-    newprice = min_lot_size * (int (newprice / min_lot_size) )
-    order = place_market_order_binance(coin, "SELL", newprice)
-    print("sent SELL order for pair {}. quantity {}".format(coin + base_currency, "{:.3f}".format(newprice)))
-    opened_orders_df = opened_orders_df.drop(labels=[coin])
-    positions_opened -= 1
     
 def process_logs_file(path):
     line = read_new_line_from_logs_file(path)
@@ -198,10 +171,6 @@ def process_logs_file(path):
      }
     if (result_dict['coin1'] not in df_signals.index):
         df_signals.loc[result_dict['coin1']] = pd.Series(result_dict)
-#    if ((signal == 'BUY' ) and (response == 'X_TIME_PASSED') and (positions_opened < MAX_TRADES) and (coin not in opened_orders_df.index)):
-#        proceed_with_buy_order(coin)
-#    elif ((signal == 'SELL' ) and (response == 'X_TIME_PASSED') and (coin in opened_orders_df.index)):
-#        proceed_with_sell_order(coin)
 
 def process_df_signals_with_status_new(df_new_records ,verbose = 0):
     global df_closed_positions, df_signals, positions_opened
@@ -280,6 +249,9 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
                     print(log_line)
                     save_purchase_to_log_file(path_logfile, log_line)
                     df_signals.loc[row['coin1'], 'status'] = Status_of_signal.DISMISSED
+        elif direction.lower() == 'short':
+            ### TBD
+            pass
                 
 
 def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
@@ -287,14 +259,8 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
     for i in range(len(df_records)):
         row = df_records.iloc[i]
         current_price = get_coin_futures_last_price(row['coin1'], row['coin2'])
-#        max_time_before_signal = datetime.timedelta(days=1)
         direction = row['signal_direction']
         if direction.lower() == 'long':
-#            if(row['time_of_signal'] - datetime.datetime.now() > max_time_before_signal):
-#                ####cancel signal and remove from df
-#                if (verbose >= 1):
-#                    print("{}/{} pair coin signal has expired".format(row['coin1'], row['coin2']))
-#                continue
             symbol = row['coin1'] + row['coin2']
             status_buy = client.futures_get_order(symbol=symbol,orderId=row['orderId_profit'])['status']
             status_sell = client.futures_get_order(symbol=symbol,orderId=row['orderId_stop'])['status']
@@ -331,8 +297,9 @@ def process_df_signals_with_status_sent_order(df_records ,verbose = 0):
                 save_purchase_to_log_file(path_logfile, log_line)
                 df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SOLD_STOPLOSS
                 positions_opened -= 1
-#            if(current_price >= row['take_profit']):
-#            if(current_price < row['stop_loss']):
+        elif direction.lower() == 'short':
+            ### TBD
+            pass
     df_closed_positions = pd.concat([df_closed_positions, df_signals[df_signals['status'] == Status_of_signal.SOLD_PROFIT].copy()], axis=0)
     df_closed_positions = pd.concat([df_closed_positions, df_signals[df_signals['status'] == Status_of_signal.SOLD_STOPLOSS].copy()], axis=0)
     df_signals = df_signals.drop(df_signals[df_signals['status'] == Status_of_signal.SOLD_PROFIT].index)
@@ -344,34 +311,6 @@ def process_df_signals(verbose = 1):
     df_sent_order_records = df_signals[df_signals['status'] == Status_of_signal.SENT_ORDER]
     process_df_signals_with_status_new(df_new_records ,verbose = verbose)
     process_df_signals_with_status_sent_order(df_sent_order_records ,verbose = verbose)
-#    for i in range(len(df_new_records)):
-#        row = df_new_records.iloc[i]
-#        current_price = get_coin_price(row['coin1'])
-#        max_time_before_signal = datetime.timedelta(days=1)
-#        if(row['time_of_signal'] - datetime.datetime.now() > max_time_before_signal):
-#            ####cancel signal and remove from df
-#            if (verbose >= 1):
-#                print("{}/{} pair coin signal has expired".format(row['coin1'], row['coin2']))
-#            continue
-#        if(current_price >= row['take_profit']):
-#            ####cancel signal and remove from df
-#            if (verbose >= 1):
-#                print("{}/{} pair coin signal has expired".format(row['coin1'], row['coin2']))
-#            continue
-#        if(current_price < row['entry']):
-#            if (verbose >= 1):
-#                print("{}/{} pair coin signal has reached entry price".format(row['coin1'], row['coin2']))
-#            log_line =  '\n'.join(["position opened",
-#                                   "pair: {}/{}".format(row['coin1'], row['coin2']),
-#                                   "leverage: {}".format(row['leverage']),
-#                                   "{}% of the portfollio".format(row['amount']),
-#                                   "price entered: {}".format(current_price),
-#                                   "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-#                                   ])
-#            print(log_line)
-#            save_purchase_to_log_file(path_logfile, log_line)
-#            df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SENT_ORDER
-        
 
 def save_purchase_to_log_file(path_logfile, log_line):
     file_object  = open(path_logfile, 'a')
@@ -400,12 +339,14 @@ def main_loop(path):
     except Exception as e:
         print(e)
 
-coins_whitelist = read_coin_list_from_txt_file(coin_list_whitelist_file_path)
-coins_blacklist = read_coin_list_from_txt_file(coin_list_blacklist_file_path)
-config_dict_raw = get_dict_from_file_single_line(config_file_path)
-MAX_TRADES, list_model, btc_to_spend, base_currency = config_dict_raw['MAX_TRADES'], config_dict_raw['list_model'], config_dict_raw['money_to_spend'], config_dict_raw['base_currency']
+#coins_whitelist = read_coin_list_from_txt_file(coin_list_whitelist_file_path)
+#coins_blacklist = read_coin_list_from_txt_file(coin_list_blacklist_file_path)
+#config_dict_raw = get_dict_from_file_single_line(config_file_path)
+#MAX_TRADES, list_model, btc_to_spend, base_currency = config_dict_raw['MAX_TRADES'], config_dict_raw['list_model'], config_dict_raw['money_to_spend'], config_dict_raw['base_currency']
 client = init_binance_clint_with_credentials_from_file(binance_credentials_file_path)
 
 opened_orders_df = init_opened_orders_df()
 df_signals = init_signals_df()
 df_closed_positions = init_signals_df()
+
+main_loop(path)
