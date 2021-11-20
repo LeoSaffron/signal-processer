@@ -20,6 +20,7 @@ import time
 from time import sleep
 from enum import Enum
 from requests.exceptions import ReadTimeout
+import math
 
 MAX_TRADES = 2
 MAX_USD = 50
@@ -155,6 +156,8 @@ def process_logs_file(path):
     
     status = Status_of_signal.NEW
     time_of_signal = pd.to_datetime(datetime.datetime.now())
+    if math.isnan(entry) or math.isnan(take_profit) or math.isnan(stop_loss):
+        return
     result_dict = {
          "coin1" : coin1,
          "coin2" : coin2,
@@ -169,6 +172,10 @@ def process_logs_file(path):
          "status" : status,
          "time_of_signal" : time_of_signal
      }
+    
+    if signal_direction.lower() == 'short':
+        return
+    
     if (result_dict['coin1'] not in df_signals.index):
         df_signals.loc[result_dict['coin1']] = pd.Series(result_dict)
 
@@ -249,7 +256,7 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
                     print(log_line)
                     save_purchase_to_log_file(path_logfile, log_line)
                     df_signals.loc[row['coin1'], 'status'] = Status_of_signal.DISMISSED
-        elif direction.lower() == 'short':
+        elif row['signal_direction'].lower() == 'short':
             ### TBD
             pass
                 
