@@ -16,15 +16,18 @@ import json
 import pandas as pd
 import datetime
 from binance.client import Client
+from binance.exceptions import BinanceAPIException
 import time
 from time import sleep
 from enum import Enum
 from requests.exceptions import ReadTimeout
 import math
+import decimal
 
 MAX_TRADES = 2
 MAX_USD = 50
 MAX_PERCENTAGE_ALLOCATION=30
+THRESHOLD_SLIPPAGE_DUE_TO_PRECISION = 0.1
 usd_limit_mode = "constant"
 #btc_to_spend = 0.001
 folder_config_path = "config_files_binance_trader/"
@@ -37,6 +40,8 @@ path_logfile = "processed_signals_action_log.txt"
 #list_model = "BLACKLIST"
 positions_opened = 0
 lines_count = 0
+
+BINANCE_PRECISION_ERROR = "Precision is over the maximum defined for this asset."
 
 class Status_of_signal(Enum):
     NEW = 1
@@ -60,6 +65,14 @@ def init_signals_df():
                           'orderId_profit', 'orderId_stop'
                           ])
     return result
+
+def get_amount_of_digits_to_the_right_of_float(number):
+    digits_to_the_right = int(math.log(number, 10)) + 1
+    digits_all = len(str(decimal.Decimal(str(number))))
+    digits_to_the_right = digits_all - digits_to_the_right - 1
+    if str(number)[-1] == '0' and digits_to_the_right == 1:
+        digits_to_the_right = 0
+    return abs(digits_to_the_right)
 
 def read_logs_file(path):
     with open(path, 'r') as f:
@@ -195,6 +208,7 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
                 ####cancel signal and remove from df
                 if (verbose >= 1):
                     print("{}/{} pair coin signal has expired due to reaching target price before entry price".format(row['coin1'], row['coin2']))
+                    df_signals.loc[row['coin1'], 'status'] = Status_of_signal.DISMISSED
                 continue
             if(current_price < row['entry']):
                 if (verbose >= 1):
@@ -206,45 +220,83 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
                     
                     min_lot_size = float(client.get_symbol_info(symbol)['filters'][2]['minQty'])
                     quantity_new = min_lot_size * (int (quantity / min_lot_size) )
-                    
-                    
-                    order = client.futures_create_order(
-                                    symbol=symbol,
-                                    side="BUY",
-                                    type="MARKET",
-                                    quantity=quantity_new)
-                    print(order)
-                    log_line =  '\n'.join(["position opened",
-                                           "pair: {}/{}".format(row['coin1'], row['coin2']),
-                                           "leverage: {}".format(row['leverage']),
-                                           "{}% of the portfollio".format(row['amount']),
-                                           "quantity: {}".format(quantity_new),
-                                           "price entered: {}".format(current_price),
-                                           "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                                           ])
-                    print(log_line)
-                    sleep(2)
-                    order_buy = client.futures_create_order(
-                                    symbol=symbol,
-                                    side="SELL",
-                                    type="TAKE_PROFIT",
-                                    quantity=quantity_new,
-                                    price=row['take_profit'],
-                                    stopPrice=row['take_profit'])
-
-
-
-                    order_sell = client.futures_create_order(
-                                                        symbol=symbol,
-                                                        side="SELL",
-                                                        type="STOP_MARKET",
-                                                        quantity=quantity_new,
-                                                        stopPrice=row['stop_loss'])
-                    save_purchase_to_log_file(path_logfile, log_line)
-                    df_signals.loc[row['coin1'], 'orderId_profit'] = order_buy['orderId']
-                    df_signals.loc[row['coin1'], 'orderId_stop'] = order_sell['orderId']
-                    df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SENT_ORDER
-                    positions_opened += 1
+                    order = None
+                    flag_order_went_through = False
+                    try:
+                        order = client.futures_create_order(
+                                        symbol=symbol,
+                                        side="BUY",
+                                        type="MARKET",
+                                        quantity=quantity_new)
+                        flag_order_went_through = True
+                    except BinanceAPIException as be:
+                        if be.message == BINANCE_PRECISION_ERROR:
+                            quantity_fixed = 10 * min_lot_size * (int (quantity / min_lot_size / 10) )
+                            precision_delta = abs(quantity_fixed - quantity_new)
+                            precision_delta_percentage = precision_delta / quantity_new
+                            if precision_delta_percentage < THRESHOLD_SLIPPAGE_DUE_TO_PRECISION:
+                                quantity_new = quantity_fixed
+                                try:
+                                    order = client.futures_create_order(
+                                                    symbol=symbol,
+                                                    side="BUY",
+                                                    type="MARKET",
+                                                    quantity=quantity_new)
+                                    df_signals.loc[row['coin1'], 'flag_precision_slippage'] = True
+                                    flag_order_went_through = True
+                                except BinanceAPIException as be:
+                                    print(type(be))
+                                    print(be.code)
+                                    print(be.message)
+                                    df_signals.loc[row['coin1'], 'status'] = Status_of_signal.DISMISSED         
+                            else:
+                                log_line =  '\n'.join(
+                                    "pair {}/{} ignored due to possible slippage cause of low precision".format(
+                                    row['coin1'], row['coin2']))
+                                if (verbose >= 1):
+                                    print(log_line)
+                                df_signals.loc[row['coin1'], 'status'] = Status_of_signal.DISMISSED
+                        else:
+                            print(type(be))
+                            print(be.code)
+                            print(be.message)
+                    except BinanceAPIException as be:
+                        print(type(be))
+                        print(be.code)
+                        print(be.message)
+                    if flag_order_went_through == True:
+                        print(order)
+                        log_line =  '\n'.join(["position opened",
+                                               "pair: {}/{}".format(row['coin1'], row['coin2']),
+                                               "leverage: {}".format(row['leverage']),
+                                               "{}% of the portfollio".format(row['amount']),
+                                               "quantity: {}".format(quantity_new),
+                                               "price entered: {}".format(current_price),
+                                               "at: {}".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                               ])
+                        print(log_line)
+                        sleep(2)
+                        order_buy = client.futures_create_order(
+                                        symbol=symbol,
+                                        side="SELL",
+                                        type="TAKE_PROFIT",
+                                        quantity=quantity_new,
+                                        price=row['take_profit'],
+                                        stopPrice=row['take_profit'])
+    
+    
+    
+                        order_sell = client.futures_create_order(
+                                                            symbol=symbol,
+                                                            side="SELL",
+                                                            type="STOP_MARKET",
+                                                            quantity=quantity_new,
+                                                            stopPrice=row['stop_loss'])
+                        save_purchase_to_log_file(path_logfile, log_line)
+                        df_signals.loc[row['coin1'], 'orderId_profit'] = order_buy['orderId']
+                        df_signals.loc[row['coin1'], 'orderId_stop'] = order_sell['orderId']
+                        df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SENT_ORDER
+                        positions_opened += 1
                 else:
                     log_line =  '\n'.join(["signal dismissed due to max limit of orders",
                                            "pair: {}/{}".format(row['coin1'], row['coin2']),
