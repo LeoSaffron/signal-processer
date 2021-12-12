@@ -67,10 +67,13 @@ def init_signals_df():
     return result
 
 def get_amount_of_digits_to_the_right_of_float(number):
-    digits_to_the_right = int(math.log(number, 10)) + 1
-    digits_all = len(str(decimal.Decimal(str(number))))
+    if number == 0:
+        return 0 
+    number_float = float(number)
+    digits_to_the_right = int(math.log(number_float, 10)) + 1
+    digits_all = len(str(decimal.Decimal(str(number_float))))
     digits_to_the_right = digits_all - digits_to_the_right - 1
-    if str(number)[-1] == '0' and digits_to_the_right == 1:
+    if str(number_float)[-1] == '0' and digits_to_the_right == 1:
         digits_to_the_right = 0
     return abs(digits_to_the_right)
 
@@ -220,6 +223,7 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
                     
                     min_lot_size = float(client.get_symbol_info(symbol)['filters'][2]['minQty'])
                     quantity_new = min_lot_size * (int (quantity / min_lot_size) )
+                    quantity_new = round(quantity_new, get_amount_of_digits_to_the_right_of_float(min_lot_size))
                     order = None
                     flag_order_went_through = False
                     try:
