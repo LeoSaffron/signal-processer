@@ -64,6 +64,8 @@ def init_signals_df():
                           'status', 'time_of_signal',
                           'orderId_profit', 'orderId_stop'
                           ])
+    df_signals['orderId_profit'] = df_signals['orderId_profit'].astype("int64")
+    df_signals['orderId_stop'] = df_signals['orderId_stop'].astype("int64")
     return result
 
 def get_amount_of_digits_to_the_right_of_float(number):
@@ -297,8 +299,8 @@ def process_df_signals_with_status_new(df_new_records ,verbose = 0):
                                                             quantity=quantity_new,
                                                             stopPrice=row['stop_loss'])
                         save_purchase_to_log_file(path_logfile, log_line)
-                        df_signals.loc[row['coin1'], 'orderId_profit'] = order_buy['orderId']
-                        df_signals.loc[row['coin1'], 'orderId_stop'] = order_sell['orderId']
+                        df_signals.loc[row['coin1'], 'orderId_profit'] = int(order_buy['orderId'])
+                        df_signals.loc[row['coin1'], 'orderId_stop'] = int(order_sell['orderId'])
                         df_signals.loc[row['coin1'], 'status'] = Status_of_signal.SENT_ORDER
                         positions_opened += 1
                 else:
