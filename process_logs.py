@@ -64,8 +64,8 @@ def init_signals_df():
                           'status', 'time_of_signal',
                           'orderId_profit', 'orderId_stop'
                           ])
-    df_signals['orderId_profit'] = df_signals['orderId_profit'].astype("int64")
-    df_signals['orderId_stop'] = df_signals['orderId_stop'].astype("int64")
+    result['orderId_profit'] = result['orderId_profit'].astype("int64")
+    result['orderId_stop'] = result['orderId_stop'].astype("int64")
     return result
 
 def get_amount_of_digits_to_the_right_of_float(number):
